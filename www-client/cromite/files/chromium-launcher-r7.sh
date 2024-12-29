@@ -3,7 +3,7 @@
 # Allow the user to override command-line flags, bug #357629.
 # This is based on Debian's chromium-browser package, and is intended
 # to be consistent with Debian.
-for f in /etc/cromite/*; do
+for f in /etc/chromium/*; do
     [[ -f ${f} ]] && source "${f}"
 done
 
@@ -56,4 +56,4 @@ fi
 # Set the .desktop file name
 export CHROME_DESKTOP="chromium-browser-chromium.desktop"
 
-exec -a "cromite-browser" "$PROGDIR/chrome" --extra-plugin-dir=/usr/lib/nsbrowser/plugins ${CHROMIUM_FLAGS} "$@"
+exec -a "chromium-browser" "$PROGDIR/chrome" --extra-plugin-dir=/usr/lib/nsbrowser/plugins ${CHROMIUM_FLAGS} "$@"

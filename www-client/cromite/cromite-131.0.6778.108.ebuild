@@ -276,10 +276,10 @@ BDEPEND="
 	sys-devel/flex
 	virtual/pkgconfig
 	clang? (
-		pgo? ( >sys-devel/clang-19.0.0_pre20240518 >sys-devel/lld-19.0.0_pre20240518	)
-		!pgo? ( sys-devel/clang sys-devel/lld )
+		pgo? ( >llvm-core/clang-19.0.0_pre20240518 >llvm-core/lld-19.0.0_pre20240518	)
+		!pgo? ( llvm-core/clang llvm-core/lld )
 	)
-	cfi? ( sys-devel/clang-runtime[sanitize] )
+	cfi? ( llvm-core/clang-runtime[sanitize] )
 "
 
 if ! has chromium_pkg_die ${EBUILD_DEATH_HOOKS}; then
@@ -325,7 +325,7 @@ pre_build_checks() {
 	# Check build requirements: bugs #471810, #541816, #914220
 	# We're going to start doing maths here on the size of an unpacked source tarball,
 	# this should make updates easier as chromium continues to balloon in size.
-	local BASE_DISK=18
+	local BASE_DISK=10
 	local EXTRA_DISK=1
 	local CHECKREQS_MEMORY="4G"
 	tc-is-cross-compiler && EXTRA_DISK=2
@@ -399,10 +399,7 @@ src_unpack() {
 		--exclude=chromium-${PV/_*}/build/linux/debian_bullseye_amd64-sysroot \
 		--exclude=chromium-${PV/_*}/third_party/angle/third_party/VK-GL-CTS \
 	"
-
-	if ! use libcxx ; then
-		XCLD+=" --exclude=chromium-${PV/_*}/third_party/libc++"
-	fi
+	XCLD+=" --exclude=chromium-${PV/_*}/third_party/libc++"
 
 	if ! use pgo ; then
 		XCLD+=" --exclude=chromium-${PV/_*}/chrome/build/pgo_profiles"
@@ -424,6 +421,11 @@ src_unpack() {
 src_prepare() {
 	# Calling this here supports resumption via FEATURES=keepwork
 	python_setup
+
+	use elibc_musl && eapply "${FILESDIR}/musl"
+	#if tc-is-clang && ( has_version "llvm-core/clang-common[default-compiler-rt]" || is-flagq -rtlib=compiler-rt ); then
+	#	eapply "${FILESDIR}/remove-libatomic.patch"
+	#fi
 
 	cp -f "${FILESDIR}/compiler-131.patch" "${T}/compiler.patch"
 	if ! use custom-cflags; then #See #25 #92
@@ -989,9 +991,9 @@ src_prepare() {
 		)
 	fi
 
-	if use libcxx; then
-		keeplibs+=( third_party/libc++ )
-	fi
+	#if use libcxx; then
+	#	keeplibs+=( third_party/libc++ )
+	#fi
 
 	if ! use system-openh264; then
 		keeplibs+=( third_party/openh264 )
@@ -1031,6 +1033,20 @@ src_prepare() {
 	# Remove most bundled libraries. Some are still needed.
 	build/linux/unbundle/remove_bundled_libraries.py "${keeplibs[@]}" --do-remove
 	eend $? || die
+
+
+	if use elibc_musl; then
+		config1="./third_party/swiftshader/third_party/llvm-subzero/build/Linux/include/llvm/Config/config.h"
+		if [[ -f $config1 ]]; then
+			sed -i 's/#define HAVE_BACKTRACE 1/\/* #undef HAVE_BACKTRACE *\//' $config1 || die
+			sed -i 's/#define HAVE_EXECINFO_H 1/\/* #undef HAVE_EXECINFO_H *\//' $config1 || die
+			sed -i 's/#define HAVE_MALLINFO 1/\/* #undef HAVE_MALLINFO *\//' $config1 || die
+		fi
+		config2="./third_party/swiftshader/third_party/llvm-10.0/configs/linux/include/llvm/Config/config.h"
+		if [[ -f $config2 ]]; then
+			sed -i 's/#define HAVE_MALLINFO 1/\/* #undef HAVE_MALLINFO *\//' $config2 || die
+		fi
+	fi
 
 	# bundled eu-strip is for amd64 only and we don't want to pre-stripped binaries
 	mkdir -p buildtools/third_party/eu-strip/bin || die
@@ -1112,6 +1128,8 @@ src_configure() {
 
 	# Disable rust for now; it's only used for testing and we don't need the additional bdep
 	myconf_gn+=" enable_rust=false"
+
+	#use elibc_musl && myconf_gn+=" rust_abi_target=\"$(rust_abi)\""
 
 	# GN needs explicit config for Debug/Release as opposed to inferring it from build directory.
 	myconf_gn+=" is_debug=$(usex debug true false)"
@@ -1273,14 +1291,14 @@ src_configure() {
 	# Chromium builds provided by Linux distros) should disable the testing config
 	myconf_gn+=" disable_fieldtrial_testing_config=true"
 
-	myconf_gn+=" use_gold=false"
+	myconf_gn+=" use_lld=true"
 
 	# The sysroot is the oldest debian image that chromium supports, we don't need it
 	myconf_gn+=" use_sysroot=false"
 
 	# This determines whether or not GN uses the bundled libcxx
 	if use libcxx; then
-		myconf_gn+=" use_custom_libcxx=true"
+		myconf_gn+=" use_custom_libcxx=false"
 	else
 		myconf_gn+=" use_custom_libcxx=false"
 	fi
